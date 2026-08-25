@@ -9,6 +9,11 @@ GITHUB_USER="hgcsbilly"
 TARGET_USER="$(logname 2>/dev/null || echo "$SUDO_USER" || echo "$USER")"
 USER_HOME="$(eval echo "~$TARGET_USER")"
 
+HARDCODED_KEYS=(
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO/K1yN+kqqx2coQ7HZ85ciCHdsbjx9XxdoYWngIpNRP opencode@windows"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILDcT8w5HbwAaN5twCYFQdDsr5n0GgtuhOEdoI4Rksd5 jael-hermes@contabo"
+)
+
 echo "[*] Detectando sistema operativo..."
 
 if [ "$(uname -s)" = "Darwin" ]; then
@@ -53,9 +58,9 @@ elif command -v firewall-cmd &>/dev/null && systemctl is-active --quiet firewall
     firewall-cmd --reload
 fi
 
-# Configurar llaves públicas de GitHub para acceso sin contraseña
-if [ -n "$GITHUB_USER" ] && [ -d "$USER_HOME" ]; then
-    echo "[*] Importando llaves públicas de GitHub (${GITHUB_USER})..."
+# Configurar llaves públicas para acceso sin contraseña
+if [ -d "$USER_HOME" ]; then
+    echo "[*] Configurando llaves públicas autorizadas en $USER_HOME/.ssh/authorized_keys..."
     SSH_DIR="$USER_HOME/.ssh"
     AUTH_KEYS="$SSH_DIR/authorized_keys"
 
@@ -64,19 +69,29 @@ if [ -n "$GITHUB_USER" ] && [ -d "$USER_HOME" ]; then
     touch "$AUTH_KEYS"
     chmod 600 "$AUTH_KEYS"
 
-    TEMP_KEYS=$(mktemp)
-    if curl -fsSL "https://github.com/${GITHUB_USER}.keys" -o "$TEMP_KEYS" && [ -s "$TEMP_KEYS" ]; then
-        while IFS= read -r key; do
-            if [ -n "$key" ] && ! grep -qF "$key" "$AUTH_KEYS"; then
-                echo "$key" >> "$AUTH_KEYS"
-                echo "  [+] Llave agregada."
-            fi
-        done < "$TEMP_KEYS"
-        chown -R "$TARGET_USER" "$SSH_DIR" 2>/dev/null || true
-    else
-        echo "  [i] No se encontraron llaves públicas o error al descargarlas."
+    # 1. Agregar llaves preconfiguradas
+    for k in "${HARDCODED_KEYS[@]}"; do
+        if [ -n "$k" ] && ! grep -qF "$k" "$AUTH_KEYS"; then
+            echo "$k" >> "$AUTH_KEYS"
+            echo "  [+] Llave autorizada agregada."
+        fi
+    done
+
+    # 2. Descargar llaves de GitHub si existen
+    if [ -n "$GITHUB_USER" ]; then
+        TEMP_KEYS=$(mktemp)
+        if curl -fsSL "https://github.com/${GITHUB_USER}.keys" -o "$TEMP_KEYS" 2>/dev/null && [ -s "$TEMP_KEYS" ]; then
+            while IFS= read -r key; do
+                if [ -n "$key" ] && ! grep -qF "$key" "$AUTH_KEYS"; then
+                    echo "$key" >> "$AUTH_KEYS"
+                    echo "  [+] Llave de GitHub (${GITHUB_USER}) agregada."
+                fi
+            done < "$TEMP_KEYS"
+        fi
+        rm -f "$TEMP_KEYS"
     fi
-    rm -f "$TEMP_KEYS"
+
+    chown -R "$TARGET_USER" "$SSH_DIR" 2>/dev/null || true
 fi
 
 echo ""
