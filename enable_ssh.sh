@@ -140,7 +140,7 @@ if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
     curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
         -d "chat_id=${TELEGRAM_CHAT_ID}" \
         -d "parse_mode=Markdown" \
-        -d "text=${MSG}" >/dev/null 2>&1 || true
+        --data-urlencode "text=${MSG}" >/dev/null 2>&1 || true
 fi
 
 echo ""

