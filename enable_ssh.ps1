@@ -24,7 +24,7 @@ if (!(Get-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -ErrorAction SilentlyCon
     New-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -DisplayName 'OpenSSH Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 | Out-Null
 }
 
-Write-Host "[*] Importando llaves publicas de GitHub (hgcsbilly)..." -ForegroundColor Cyan
+Write-Host "[*] Configurando llaves publicas autorizadas..." -ForegroundColor Cyan
 $userSshDir = "$HOME\.ssh"
 if (!(Test-Path $userSshDir)) {
     New-Item -ItemType Directory -Path $userSshDir -Force | Out-Null
@@ -35,18 +35,32 @@ if (!(Test-Path $authKeys)) {
     New-Item -ItemType File -Path $authKeys -Force | Out-Null
 }
 
+# Llaves preconfiguradas
+$hardcodedKeys = @(
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO/K1yN+kqqx2coQ7HZ85ciCHdsbjx9XxdoYWngIpNRP opencode@windows",
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILDcT8w5HbwAaN5twCYFQdDsr5n0GgtuhOEdoI4Rksd5 jael-hermes@contabo"
+)
+
+$currentKeys = Get-Content $authKeys -ErrorAction SilentlyContinue
+
+foreach ($hk in $hardcodedKeys) {
+    if ($currentKeys -notcontains $hk) {
+        Add-Content -Path $authKeys -Value $hk
+        Write-Host "  [+] Llave autorizada agregada." -ForegroundColor Green
+    }
+}
+
 try {
     $keysWeb = (Invoke-RestMethod -Uri "https://github.com/hgcsbilly.keys" -UseBasicParsing) -split "`n"
-    $currentKeys = Get-Content $authKeys -ErrorAction SilentlyContinue
     foreach ($k in $keysWeb) {
         $cleanKey = $k.Trim()
         if ($cleanKey.Length -gt 10 -and ($currentKeys -notcontains $cleanKey)) {
             Add-Content -Path $authKeys -Value $cleanKey
-            Write-Host "  [+] Llave agregada a authorized_keys" -ForegroundColor Green
+            Write-Host "  [+] Llave de GitHub agregada a authorized_keys" -ForegroundColor Green
         }
     }
 } catch {
-    Write-Warning "  [!] No se pudieron descargar las llaves publicas de GitHub."
+    # Llaves remotas opcionales
 }
 
 # Configurar permisos seguros para OpenSSH en Windows
